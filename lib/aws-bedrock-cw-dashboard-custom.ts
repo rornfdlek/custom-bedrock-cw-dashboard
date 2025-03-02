@@ -11,7 +11,7 @@
  *  and limitations under the License.
  */
 
-import { Duration, Aws, CfnOutput } from 'aws-cdk-lib';
+import { Duration, Aws, CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
 import {
   Metric,
   Dashboard,
@@ -28,6 +28,11 @@ import {
   LogQueryWidget,
   LogQueryVisualizationType,
   Color,
+  AlarmStatusWidget,
+  IAlarm,
+  Alarm,
+  AlarmRule,
+  AlarmWidget
 } from 'aws-cdk-lib/aws-cloudwatch';
 import { Construct } from 'constructs';
 
@@ -205,7 +210,8 @@ export class BedrockCwDashboard extends Construct {
       dimensionsMap: {
         ModelId: modelId,
       },
-      statistic: Stats.SAMPLE_COUNT,
+      // statistic: Stats.SAMPLE_COUNT,
+      statistic: Stats.SUM, // 1분 내 호출 수를 합산해야 함
       period: period,
     });
 
@@ -215,7 +221,8 @@ export class BedrockCwDashboard extends Construct {
       dimensionsMap: {
         ModelId: modelId,
       },
-      statistic: Stats.SAMPLE_COUNT,
+      // statistic: Stats.SAMPLE_COUNT,
+      statistic: Stats.SUM,
       period: period,
     });
 
@@ -225,7 +232,8 @@ export class BedrockCwDashboard extends Construct {
       dimensionsMap: {
         ModelId: modelId,
       },
-      statistic: Stats.SAMPLE_COUNT,
+      // statistic: Stats.SAMPLE_COUNT,
+      statistic: Stats.SUM,
       period: period,
     });
 
@@ -235,7 +243,8 @@ export class BedrockCwDashboard extends Construct {
       dimensionsMap: {
         ModelId: modelId,
       },
-      statistic: Stats.SAMPLE_COUNT,
+      // statistic: Stats.SAMPLE_COUNT,
+      statistic: Stats.SUM,
       period: period,
     });
 
@@ -245,7 +254,8 @@ export class BedrockCwDashboard extends Construct {
       dimensionsMap: {
         ModelId: modelId,
       },
-      statistic: Stats.SAMPLE_COUNT,
+      // statistic: Stats.SAMPLE_COUNT,
+      statistic: Stats.SUM,
       period: period,
     });
 
@@ -264,16 +274,19 @@ export class BedrockCwDashboard extends Construct {
         new SingleValueWidget({
           title: 'Average Latency',
           metrics: [modelLatencyAvgMetric],
+          setPeriodToTimeRange: true,
           width: 8,
         }),
         new SingleValueWidget({
           title: 'Min Latency',
           metrics: [modelLatencyMinMetric],
+          setPeriodToTimeRange: true,
           width: 8,
         }),
         new SingleValueWidget({
           title: 'Max Latency',
           metrics: [modelLatencyMaxMetric],
+          setPeriodToTimeRange: true,
           width: 8,
         }),
       ),
@@ -341,31 +354,37 @@ export class BedrockCwDashboard extends Construct {
       new SingleValueWidget({
         title: 'Invocations',
         metrics: [modelInvocationsCountMetric],
+        setPeriodToTimeRange: true,
         width: 4,
       }),
       new SingleValueWidget({
         title: 'Client Errors',
         metrics: [modelInvocationsClientErrorsMetric],
+        setPeriodToTimeRange: true,
         width: 4,
       }),
       new SingleValueWidget({
         title: 'Server Errors',
         metrics: [modelInvocationsServerErrorsMetric],
+        setPeriodToTimeRange: true,
         width: 4,
       }),
       new SingleValueWidget({
         title: 'Throttled invocations',
         metrics: [modelInvocationsThrottlesErrorsMetric],
+        setPeriodToTimeRange: true,
         width: 4,
       }),
       new SingleValueWidget({
         title: 'Legacy invocations',
         metrics: [modelInvocationsLegacysMetric],
+        setPeriodToTimeRange: true,
         width: 4,
       }),
       new SingleValueWidget({
         title: 'OutputImageCount',
         metrics: [modelOutputImageMetric],
+        setPeriodToTimeRange: true,
         width: 4,
       }),
     );
@@ -680,6 +699,45 @@ export class BedrockCwDashboard extends Construct {
           height: 4,
           period: period,
           setPeriodToTimeRange: true,
+        }),
+        // 결제 성공/실패 pie chart
+        new LogQueryWidget({
+          title: '결제 성공 / 실패',
+          logGroupNames: ['/aws/lambda/lambda-bedrock-agent'],
+          queryString: `
+              fields @timestamp, @message
+              | filter @message like "[PAY]"
+              | parse @message "[PAY]*" as payment
+              | stats count() as count by payment
+            `,
+          view: LogQueryVisualizationType.PIE,
+          width: 6,
+          height: 4,
+        }),
+        new AlarmStatusWidget({
+          title: "알람 발생 현황",
+          alarms: [
+            Alarm.fromAlarmArn(this, 'Alarm', 'arn:aws:cloudwatch:us-west-2:682033488544:alarm:Bedrock 모델 호출 수 임계치 초과'),
+            Alarm.fromAlarmArn(this, 'Alarm2', 'arn:aws:cloudwatch:us-west-2:682033488544:alarm:Action Group Lambda 에러 수 임계치 초과'),
+            Alarm.fromAlarmArn(this, 'Alarm3', 'arn:aws:cloudwatch:us-west-2:682033488544:alarm:Claude 3.5 Sonnet V2 호출 비용 임계치 초과'),
+          ],
+          width: 6,
+          height: 4
+        }),
+        // 결제 로그 테이블
+        new LogQueryWidget({
+          title: '결제 로그',
+          logGroupNames: ['/aws/lambda/lambda-bedrock-agent'],
+          queryString: `
+              filter @message like "[PAY]"
+              | fields @timestamp
+              | parse @message "[PAY]*" as payment
+              | fields @logStream, @log
+              | sort @timestamp desc
+              | limit 100
+            `,
+          view: LogQueryVisualizationType.TABLE,
+          width: 24
         }),
       ),
     );
